@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/mattn/go-pubsub"
+	"github.com/phcostabh/go-pubsub"
 	"log"
 	"time"
 )

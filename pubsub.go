@@ -1,11 +1,11 @@
 /*
-This package provides a portable intaface to pubsub model.
+Package pubsub provides a portable intaface to pubsub model.
 PubSub can publish/subscribe/unsubscribe messages for all.
 To subscribe:
 
 	ps := pubsub.New()
-	ps.Sub(func(s string) {
-		fmt.Println(s)
+	ps.Sub(func(s interface{}) {
+		fmt.Println(s.(string))
 	})
 
 To publish:
@@ -18,61 +18,69 @@ can accept the type for the argument of callback.
 package pubsub
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
-	"runtime"
 	"sync"
 )
 
-type PubSubError struct {
-	f interface{}
-	e interface{}
+// Error ...
+type Error struct {
+	fn interface{}
+	e  interface{}
 }
 
-func (pse *PubSubError) String() string {
-	return fmt.Sprintf("%v: %v", pse.f, pse.e)
+func (pse *Error) String() string {
+	return fmt.Sprintf("%v: %v", pse.fn, pse.e)
 }
 
-func (pse *PubSubError) Error() string {
+func (pse *Error) Error() string {
 	return fmt.Sprint(pse.e)
 }
 
-func (pse *PubSubError) Subscriber() interface{} {
-	return pse.f
+// Subscriber ...
+func (pse *Error) Subscriber() interface{} {
+	return pse.fn
+}
+
+// Func is an adapter to have ordinary functions to implement the Subscriber interface.
+type Func func(interface{})
+
+// Exec calls fn(i)
+func (fn Func) Exec(i interface{}) {
+	fn(i)
+}
+
+// Subscriber ...
+type Subscriber interface {
+	Exec(arg interface{})
 }
 
 // PubSub contains channel and callbacks.
 type PubSub struct {
-	c chan interface{}
-	f []interface{}
-	m sync.Mutex
-	e chan error
+	sync.Mutex
+	ch chan interface{}
+	fn []Subscriber
+	e  chan error
 }
 
 // New return new PubSub intreface.
 func New() *PubSub {
 	ps := new(PubSub)
-	ps.c = make(chan interface{})
+	ps.ch = make(chan interface{})
 	ps.e = make(chan error)
 	go func() {
-		for v := range ps.c {
-			rv := reflect.ValueOf(v)
-			ps.m.Lock()
-			for _, f := range ps.f {
-				rf := reflect.ValueOf(f)
-				if rv.Type() == reflect.ValueOf(f).Type().In(0) {
-					go func(f interface{}, rf reflect.Value) {
-						defer func() {
-							if err := recover(); err != nil {
-								ps.e <-&PubSubError{f, err}
-							}
-						}()
-						rf.Call([]reflect.Value{rv})
-					}(f, rf)
-				}
+		for v := range ps.ch {
+			ps.Lock()
+			for _, fn := range ps.fn {
+				go func(fn Subscriber, v interface{}) {
+					defer func() {
+						if err := recover(); err != nil {
+							ps.e <- &Error{fn, err}
+						}
+					}()
+					fn.Exec(v)
+				}(fn, v)
 			}
-			ps.m.Unlock()
+			ps.Unlock()
 		}
 	}()
 	return ps
@@ -83,50 +91,42 @@ func (ps *PubSub) Error() chan error {
 }
 
 // Sub subscribe to the PubSub.
-func (ps *PubSub) Sub(f interface{}) error {
-	rf := reflect.ValueOf(f)
-	if rf.Kind() != reflect.Func {
-		return errors.New("Not a function")
-	}
-	if rf.Type().NumIn() != 1 {
-		return errors.New("Number of arguments should be 1")
-	}
-	ps.m.Lock()
-	defer ps.m.Unlock()
-	ps.f = append(ps.f, f)
-	return nil
-}
+func (ps *PubSub) Sub(fn interface{}) int {
+	ps.Lock()
+	defer ps.Unlock()
+	findex := len(ps.fn)
 
-// Leave unsubscribe to the PubSub.
-func (ps *PubSub) Leave(f interface{}) {
-	var fp uintptr
-	if f == nil {
-		if pc, _, _, ok := runtime.Caller(1); ok {
-			fp = runtime.FuncForPC(pc).Entry()
-		}
-	} else {
-		fp = reflect.ValueOf(f).Pointer()
+	// This is not beautiful, but we don't need relfection though.
+	switch fn.(type) {
+	case Subscriber:
+		ps.fn = append(ps.fn, fn.(Subscriber))
+	case func(i interface{}):
+		ps.fn = append(ps.fn, Func(fn.(func(i interface{}))))
+	default:
+		panic(`Either this is not a function or the function doesn't fullfil the signature "func (i interface{})"`)
 	}
-	ps.m.Lock()
-	defer ps.m.Unlock()
-	result := make([]interface{}, 0, len(ps.f))
-	last := 0
-	for i, v := range ps.f {
-		if reflect.ValueOf(v).Pointer() == fp {
-			result = append(result, ps.f[last:i]...)
-			last = i + 1
-		}
-	}
-	ps.f = append(result, ps.f[last:]...)
+
+	return findex
 }
 
 // Pub publish to the PubSub.
 func (ps *PubSub) Pub(v interface{}) {
-	ps.c <- v
+	ps.ch <- v
+}
+
+// Leave unsubscribe to the PubSub.
+func (ps *PubSub) Leave(findex int) {
+	ps.Lock()
+	defer ps.Unlock()
+	result := make([]Subscriber, 0, len(ps.fn))
+	last := 0
+	result = append(result, ps.fn[last:findex]...)
+	last = findex + 1
+	ps.fn = append(result, ps.fn[last:]...)
 }
 
 // Close closes PubSub. To inspect unbsubscribing for another subscruber, you must create message structure to notify them. After publish notifycations, Close should be called.
 func (ps *PubSub) Close() {
-	close(ps.c)
-	ps.f = nil
+	close(ps.ch)
+	ps.fn = nil
 }
