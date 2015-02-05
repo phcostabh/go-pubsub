@@ -2,10 +2,11 @@ package main
 
 import (
 	"bufio"
-	"github.com/phcostabh/go-pubsub"
 	"log"
 	"net"
 	"strings"
+
+	"github.com/phcostabh/go-pubsub"
 )
 
 func main() {
@@ -25,9 +26,11 @@ func main() {
 		}
 		go func(c net.Conn) {
 			buf := bufio.NewReader(c)
-			ps.Sub(func(t string) {
-				log.Println(t)
-				c.Write([]byte(t + "\n"))
+			findex := ps.Sub(func(t interface{}) {
+				if message, ok := t.(string); ok {
+					log.Println(message)
+					c.Write([]byte(message + "\n"))
+				}
 			})
 			log.Println("Subscribed", c.RemoteAddr().String())
 			for {
@@ -38,7 +41,7 @@ func main() {
 				}
 				ps.Pub(strings.TrimSpace(string(b)))
 			}
-			ps.Leave(nil)
+			ps.Leave(findex)
 		}(c)
 	}
 }
