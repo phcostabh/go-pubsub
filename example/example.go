@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/phcostabh/go-pubsub"
 	"log"
 	"time"
+
+	"github.com/phcostabh/go-pubsub"
 )
 
 type foo struct {
@@ -16,36 +17,34 @@ func main() {
 
 	go func() {
 		for err := range ps.Error() {
-			if pse, ok := err.(*pubsub.PubSubError); ok {
+			if pse, ok := err.(*pubsub.Error); ok {
 				log.Println(pse.String())
-				ps.Leave(pse.Subscriber())
+				// ps.Leave(pse.Subscriber())
 			} else {
 				log.Println(err.Error())
 			}
 		}
 	}()
 
-	ps.Sub(func(i int) {
-		fmt.Println("int subscriber: ", i)
+	ps.Sub(func(i interface{}) {
+		fmt.Println("int subscriber: ", i.(int))
 	})
-	ps.Sub(func(s string) {
-		fmt.Println("string subscriber: ", s)
+	ps.Sub(func(s interface{}) {
+		fmt.Println("string subscriber: ", s.(string))
 	})
-	ps.Sub(func(f *foo) {
-		fmt.Println("foo subscriber1: ", f.bar)
+	ps.Sub(func(f interface{}) {
+		fmt.Println("foo subscriber1: ", f.(*foo).bar)
 	})
-	ps.Sub(func(f *foo) {
-		fmt.Println("foo subscriber2: ", f.bar)
-		ps.Leave(nil)
+	ps.Sub(func(f interface{}) {
+		fmt.Println("foo subscriber2: ", f.(*foo).bar)
 	})
-	var f3 func(f *foo)
-	f3 = func(f *foo) {
-		fmt.Println("foo subscriber3: ", f.bar)
-		ps.Leave(f3)
+	var f3 func(f interface{})
+	f3 = func(f interface{}) {
+		fmt.Println("foo subscriber3: ", f.(*foo).bar)
 	}
 	ps.Sub(f3)
-	ps.Sub(func(f float64) {
-		fmt.Println("float64 subscriber: ", f)
+	ps.Sub(func(f interface{}) {
+		fmt.Println("float64 subscriber: ", f.(float64))
 		panic("Crash!")
 	})
 
