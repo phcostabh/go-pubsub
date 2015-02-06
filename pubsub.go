@@ -49,6 +49,17 @@ func (fn Func) Exec(i interface{}) {
 	fn(i)
 }
 
+// Subscription ...
+type Subscription struct {
+	ps    *PubSub
+	index int
+}
+
+// Remove ...
+func (s *Subscription) Remove() {
+	s.ps.Leave(s.index)
+}
+
 // Subscriber ...
 type Subscriber interface {
 	Exec(arg interface{})
@@ -91,7 +102,7 @@ func (ps *PubSub) Error() chan error {
 }
 
 // Sub subscribe to the PubSub.
-func (ps *PubSub) Sub(fn interface{}) int {
+func (ps *PubSub) Sub(fn interface{}) *Subscription {
 	ps.Lock()
 	defer ps.Unlock()
 	findex := len(ps.fn)
@@ -103,10 +114,13 @@ func (ps *PubSub) Sub(fn interface{}) int {
 	case func(i interface{}):
 		ps.fn = append(ps.fn, Func(fn.(func(i interface{}))))
 	default:
-		panic(`Either this is not a function or the function doesn't fullfil the signature "func (i interface{})"`)
+		panic(`Either this is not a function or the function doesn't fulfill the signature "func (i interface{})"`)
 	}
 
-	return findex
+	return &Subscription{
+		ps:    ps,
+		index: findex,
+	}
 }
 
 // Pub publish to the PubSub.

@@ -68,7 +68,7 @@ func TestLeave(t *testing.T) {
 		done <- i.(int) + 1
 	})
 
-	fnindex2 := ps.Sub(func(i interface{}) {
+	subscription := ps.Sub(func(i interface{}) {
 		done <- i.(int) + 2
 	})
 
@@ -84,7 +84,7 @@ func TestLeave(t *testing.T) {
 		t.Fatalf("Expected %v, but %d:", 3, i)
 	}
 
-	ps.Leave(fnindex2)
+	subscription.Remove()
 
 	ps.Pub(1)
 	i = <-done
